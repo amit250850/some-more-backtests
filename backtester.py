@@ -63,36 +63,67 @@ class VectorizedBacktester:
                             exit_reason = "Time Stop"
                 else:
                     if position_type == 1:
-                        ret = (row.low - entry_price) / entry_price
-                        if ret <= -stop_loss_pct:
-                            exit_price = entry_price * (1 - stop_loss_pct)
-                            exit_reason = "Stop Loss"
-                        elif 'Strategy3' in self.strategy_name:
-                            trail_stop = entry_price - (atr_multiplier * getattr(row, 'atr', 0))
-                            if row.low < trail_stop:
-                                exit_price = trail_stop
-                                exit_reason = "Trailing Stop"
-                        elif 'Strategy5' in self.strategy_name:
-                            if row.high >= getattr(row, 'vwap', 0):
-                                exit_price = getattr(row, 'vwap', row.close)
-                                exit_reason = "VWAP Target"
+                        if 'Strategy6' in self.strategy_name:
+                            # Use structural sl_price and 1.5 R:R target
+                            sl = sl_price
+                            risk = entry_price - sl
+                            target = entry_price + (1.5 * risk) if risk > 0 else entry_price * 1.01
+
+                            if row.low <= sl:
+                                exit_price = sl
+                                exit_reason = "Stop Loss"
+                            elif row.high >= target:
+                                exit_price = target
+                                exit_reason = "Take Profit"
+                            elif row.date.time() >= pd.to_datetime('22:30:00').time():
+                                exit_price = row.close
+                                exit_reason = "Time Stop (22:30)"
+                        else:
+                            ret = (row.low - entry_price) / entry_price
+                            if ret <= -stop_loss_pct:
+                                exit_price = entry_price * (1 - stop_loss_pct)
+                                exit_reason = "Stop Loss"
+                            elif 'Strategy3' in self.strategy_name:
+                                trail_stop = entry_price - (atr_multiplier * getattr(row, 'atr', 0))
+                                if row.low < trail_stop:
+                                    exit_price = trail_stop
+                                    exit_reason = "Trailing Stop"
+                            elif 'Strategy5' in self.strategy_name:
+                                if row.high >= getattr(row, 'vwap', 0):
+                                    exit_price = getattr(row, 'vwap', row.close)
+                                    exit_reason = "VWAP Target"
 
                     elif position_type == -1:
-                        ret = (entry_price - row.high) / entry_price
-                        if ret <= -stop_loss_pct:
-                            exit_price = entry_price * (1 + stop_loss_pct)
-                            exit_reason = "Stop Loss"
-                        elif 'Strategy3' in self.strategy_name:
-                            trail_stop = entry_price + (atr_multiplier * getattr(row, 'atr', 0))
-                            if row.high > trail_stop:
-                                exit_price = trail_stop
-                                exit_reason = "Trailing Stop"
-                        elif 'Strategy5' in self.strategy_name:
-                            if row.low <= getattr(row, 'vwap', 0):
-                                exit_price = getattr(row, 'vwap', row.close)
-                                exit_reason = "VWAP Target"
+                        if 'Strategy6' in self.strategy_name:
+                            sl = sl_price
+                            risk = sl - entry_price
+                            target = entry_price - (1.5 * risk) if risk > 0 else entry_price * 0.99
 
-                    if exit_price is None:
+                            if row.high >= sl:
+                                exit_price = sl
+                                exit_reason = "Stop Loss"
+                            elif row.low <= target:
+                                exit_price = target
+                                exit_reason = "Take Profit"
+                            elif row.date.time() >= pd.to_datetime('22:30:00').time():
+                                exit_price = row.close
+                                exit_reason = "Time Stop (22:30)"
+                        else:
+                            ret = (entry_price - row.high) / entry_price
+                            if ret <= -stop_loss_pct:
+                                exit_price = entry_price * (1 + stop_loss_pct)
+                                exit_reason = "Stop Loss"
+                            elif 'Strategy3' in self.strategy_name:
+                                trail_stop = entry_price + (atr_multiplier * getattr(row, 'atr', 0))
+                                if row.high > trail_stop:
+                                    exit_price = trail_stop
+                                    exit_reason = "Trailing Stop"
+                            elif 'Strategy5' in self.strategy_name:
+                                if row.low <= getattr(row, 'vwap', 0):
+                                    exit_price = getattr(row, 'vwap', row.close)
+                                    exit_reason = "VWAP Target"
+
+                    if exit_price is None and 'Strategy6' not in self.strategy_name:
                         dyn_hold = getattr(row, 'bucket_bars', hold_bars) if 'Strategy2' in self.strategy_name else hold_bars
                         if bars_held >= dyn_hold:
                             exit_price = row.close
@@ -142,6 +173,7 @@ class VectorizedBacktester:
                 entry_idx = idx
                 entry_date = row.date
                 entry_price = entry_target
+                sl_price = getattr(row, 'sl_price', 0)
 
                 if is_options:
                     if position_type == 1:

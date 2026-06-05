@@ -60,6 +60,85 @@ class Strategy1_SUVMomentum(BaseStrategy):
 
         return self.signals
 
+class Strategy6_SilverCOMEXBreakout(BaseStrategy):
+    """
+    Strategy 6: SILVERM 15-min COMEX breakout
+    - First 2 candles after 5:30 PM (17:30 and 17:45) establish range.
+    - Breakout of range = entry (Wait for candle close outside range to avoid fakeouts, entry next bar open).
+    - Volume filter: breakout candle volume > 20-period moving average.
+    - Exit: 1.5 R:R, or Time Stop at 10:30 PM (22:30).
+    """
+    def generate_signals(self) -> pd.DataFrame:
+        df = self.data
+
+        # Calculate 20-period volume MA
+        df['vol_ma20'] = df['volume'].rolling(20).mean()
+
+        # Identify COMEX Open Range (17:30 to 18:00)
+        # We need the highest high and lowest low between 17:30 and 18:00
+        df['time'] = df['date'].dt.time
+
+        # Initialize range columns
+        df['comex_high'] = np.nan
+        df['comex_low'] = np.nan
+        df['in_comex_range_setup'] = False
+
+        # Helper to get the day
+        df['date_only'] = df['date'].dt.date
+
+        # Group by day to find the range
+        daily_ranges = {}
+        for day, group in df.groupby('date_only'):
+            # The candles representing the first 30 mins: 17:30 and 17:45
+            setup_candles = group[(group['time'] >= pd.to_datetime('17:30:00').time()) &
+                                  (group['time'] <= pd.to_datetime('17:45:00').time())]
+
+            if not setup_candles.empty:
+                daily_ranges[day] = {
+                    'high': setup_candles['high'].max(),
+                    'low': setup_candles['low'].min()
+                }
+
+        # Map back to main dataframe
+        df['comex_high'] = df['date_only'].map(lambda x: daily_ranges.get(x, {}).get('high', np.nan))
+        df['comex_low'] = df['date_only'].map(lambda x: daily_ranges.get(x, {}).get('low', np.nan))
+
+        df['signal'] = 0
+        df['exit_time'] = pd.to_datetime('22:30:00').time()
+
+        # Conditions for breakout
+        # 1. Time must be AFTER 18:00 (since 17:30-18:00 forms the range)
+        # 2. Time must be BEFORE 22:30 (don't enter right before exit)
+        time_cond = (df['time'] > pd.to_datetime('17:45:00').time()) & (df['time'] < pd.to_datetime('22:30:00').time())
+
+        # 3. Volume > 20MA
+        vol_cond = df['volume'] > df['vol_ma20']
+
+        # 4. Breakout: We enter if the current candle CLOSES outside the range
+        # (This prevents massive wicks from falsely triggering)
+        long_cond = time_cond & vol_cond & (df['close'] > df['comex_high']) & (df['close'].shift(1) <= df['comex_high'])
+        short_cond = time_cond & vol_cond & (df['close'] < df['comex_low']) & (df['close'].shift(1) >= df['comex_low'])
+
+        df.loc[long_cond, 'signal'] = 1
+        df.loc[short_cond, 'signal'] = -1
+
+        # We only want to trigger the FIRST breakout of the day to avoid overtrading chop
+        # Use transform to maintain identical index
+        df['signal_cum'] = df.groupby('date_only')['signal'].transform(lambda x: x.abs().cumsum())
+        df.loc[df['signal_cum'] > 1, 'signal'] = 0
+
+        self.signals = df[['date', 'open', 'high', 'low', 'close', 'volume', 'comex_high', 'comex_low', 'signal']].copy()
+
+        # Since we use R:R, we need to pass the Stop Loss level to the backtester
+        # Stop loss for Long is the comex_low (the bottom of the range)
+        # Stop loss for Short is the comex_high (the top of the range)
+        self.signals['sl_price'] = np.where(self.signals['signal'] == 1, self.signals['comex_low'],
+                                   np.where(self.signals['signal'] == -1, self.signals['comex_high'], np.nan))
+
+        self.signals['entry_price'] = self.signals['open'].shift(-1)
+
+        return self.signals
+
 class Strategy2_VPIN(BaseStrategy):
     """
     Strategy 2: VPIN Approximation (Order Flow Toxicity)

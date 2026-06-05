@@ -2,8 +2,8 @@ import json
 import os
 from kiteconnect import KiteConnect
 
-API_KEY = "66zl2ugdl1n2253v"
-API_SECRET = "j61w2syt5uagpy9qqndck2jhir61gno9"
+API_KEY = os.environ.get("KITE_API_KEY", "66zl2ugdl1n2253v") # Fallback for demo purposes, remove in production
+API_SECRET = os.environ.get("KITE_API_SECRET", "j61w2syt5uagpy9qqndck2jhir61gno9")
 SESSION_FILE = "kite_session.json"
 
 def get_kite_session():
