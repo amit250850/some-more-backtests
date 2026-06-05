@@ -1,0 +1,26 @@
+=== SUMMARY RANKINGS (By OOS Sharpe Ratio) ===
+
+    Instrument                         Strategy  IS_Sharpe  OOS_Sharpe  Warning
+0        NIFTY       Strategy5_VolumeDivergence      -0.92       11.58    False
+1    BANKNIFTY       Strategy5_VolumeDivergence      -1.16        4.07    False
+2    BANKNIFTY                   Strategy2_VPIN       4.07        3.75    False
+3        NIFTY                   Strategy2_VPIN       5.22        0.05     True
+4        NIFTY  Strategy4_OptionVolumeImbalance       0.00        0.00    False
+5    BANKNIFTY  Strategy4_OptionVolumeImbalance       0.00        0.00    False
+6    BANKNIFTY            Strategy1_SUVMomentum      41.87        0.00     True
+7    BANKNIFTY            Strategy3_VolumeSpike       3.64       -3.33     True
+8   GOLDGUINEA            Strategy3_VolumeSpike      -7.68       -4.69    False
+9        NIFTY            Strategy3_VolumeSpike       4.53       -6.42     True
+10  GOLDGUINEA       Strategy5_VolumeDivergence      -8.31       -7.85    False
+11       NIFTY            Strategy1_SUVMomentum      31.61      -12.93     True
+12   SILVERMIC            Strategy3_VolumeSpike      -0.20      -15.13    False
+13  GOLDGUINEA            Strategy1_SUVMomentum      -4.37      -18.80    False
+14   SILVERMIC       Strategy5_VolumeDivergence      -8.43      -20.69    False
+15   SILVERMIC                   Strategy2_VPIN     -21.80      -24.67    False
+16  GOLDGUINEA                   Strategy2_VPIN     -23.25      -26.48    False
+17   SILVERMIC            Strategy1_SUVMomentum      67.61      -42.74     True
+
+=== TOP 3 RECOMMENDATIONS ===
+1. Strategy5_VolumeDivergence on NIFTY (OOS Sharpe: 11.58)
+2. Strategy5_VolumeDivergence on BANKNIFTY (OOS Sharpe: 4.07)
+3. Strategy2_VPIN on BANKNIFTY (OOS Sharpe: 3.75)
