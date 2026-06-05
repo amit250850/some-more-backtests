@@ -13,7 +13,6 @@ class DataFetcher:
             os.makedirs(self.data_dir)
 
     def get_nearest_future(self, exchange, name):
-        """Gets the instrument token for the nearest expiry future for continuous fetching."""
         try:
             instruments = self.kite.instruments(exchange)
             futs = [i for i in instruments if i['name'] == name and i['instrument_type'] == 'FUT']
@@ -38,7 +37,7 @@ class DataFetcher:
         logging.info(f"Fetching {symbol} {interval} data from {from_date.date()} to {to_date.date()} (continuous={continuous})...")
 
         all_data = []
-        chunk = timedelta(days=100) # Max 100 days per call for minute data
+        chunk = timedelta(days=100)
         current = from_date
 
         while current < to_date:
@@ -56,13 +55,16 @@ class DataFetcher:
                     all_data.extend(data)
             except Exception as e:
                 logging.error(f"Error fetching data for {symbol} chunk: {e}")
-                break # Usually limit reached or token expired
+                # If continuous fails due to interval restrictions, break and return empty so caller can handle it
+                if "invalid interval" in str(e).lower() and continuous:
+                    logging.warning("Continuous flag not supported for this interval. Will fallback to standard fetch.")
+                    return pd.DataFrame()
+                break
 
             current = end
-            time.sleep(0.5) # Critical to prevent 429 Too Many Requests
+            time.sleep(0.5)
 
         if not all_data:
-            logging.warning(f"No data found for {symbol}.")
             return pd.DataFrame()
 
         df = pd.DataFrame(all_data)
@@ -75,7 +77,6 @@ class DataFetcher:
         return df
 
     def get_all_required_data(self):
-        # User's Phase 1 Request: Deep historical fetch from Jan 2022
         deep_start = datetime(2022, 1, 1)
 
         instruments = [
@@ -94,12 +95,20 @@ class DataFetcher:
             if token:
                 logging.info(f"Found active nearest future for {name}: {tradingsymbol} (Token: {token})")
 
-                # Intraday 5minute (Continuous)
                 key_5m = f"{name}_5minute"
                 df_5m = self.fetch_historical_data(token, name, req["interval"], req["start"], continuous=True)
-                data_dict[key_5m] = df_5m
 
-                # Daily (Continuous)
+                # Fallback to standard 60-day fetch if continuous intraday fails
+                if df_5m.empty:
+                    logging.info(f"Fallback to 60-day standard fetch for {name} 5minute...")
+                    # For non-continuous, we must use the standard non-continuous filename to avoid confusing cache
+                    key_5m_std = f"{name}_{req['interval']}"
+                    df_5m = self.fetch_historical_data(token, name, req["interval"], start_date=datetime.now() - timedelta(days=60), continuous=False)
+                    data_dict[key_5m_std] = df_5m
+                else:
+                    data_dict[key_5m] = df_5m
+
+                # Daily data usually supports continuous=True
                 key_1d = f"{name}_day"
                 df_1d = self.fetch_historical_data(token, name, "day", deep_start, continuous=True)
                 data_dict[key_1d] = df_1d
@@ -111,7 +120,6 @@ class DataFetcher:
 
     def _generate_synthetic_pcr_data(self):
         for symbol in ["NIFTY", "BANKNIFTY"]:
-            # Matches the new continuous naming convention for caching dependency
             filename = os.path.join(self.data_dir, f"{symbol}_continuous_day.csv")
             pcr_filename = os.path.join(self.data_dir, f"{symbol}_PCR.csv")
 
