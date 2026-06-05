@@ -1,4 +1,5 @@
 import os
+import time
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
@@ -11,48 +12,54 @@ class DataFetcher:
         if not os.path.exists(self.data_dir):
             os.makedirs(self.data_dir)
 
-    def get_instrument_token(self, exchange, tradingsymbol_like):
+    def get_nearest_future(self, exchange, name):
+        """Gets the instrument token for the nearest expiry future for continuous fetching."""
         try:
             instruments = self.kite.instruments(exchange)
-            for instr in instruments:
-                if tradingsymbol_like in instr['tradingsymbol']:
-                    return instr['instrument_token']
+            futs = [i for i in instruments if i['name'] == name and i['instrument_type'] == 'FUT']
+            futs.sort(key=lambda x: pd.to_datetime(x['expiry']))
+            if futs:
+                return futs[0]['instrument_token'], futs[0]['tradingsymbol']
         except Exception as e:
-            logging.error(f"Error fetching instruments for {exchange}: {e}")
-        return None
+            logging.error(f"Error fetching futures for {name}: {e}")
+        return None, None
 
-    def fetch_historical_data(self, instrument_token, symbol, interval="5minute", days_back=60):
-        filename = os.path.join(self.data_dir, f"{symbol}_{interval}.csv")
+    def fetch_historical_data(self, instrument_token, symbol, interval="5minute", start_date=None, continuous=False):
+        filename = os.path.join(self.data_dir, f"{symbol}_continuous_{interval}.csv" if continuous else f"{symbol}_{interval}.csv")
 
         if os.path.exists(filename):
-            logging.info(f"Loaded {symbol} {interval} data from cache.")
+            logging.info(f"Loaded {symbol} {interval} data from cache ({filename}).")
             df = pd.read_csv(filename, parse_dates=['date'])
             return df
 
-        logging.info(f"Fetching {symbol} {interval} data from Kite API for last {days_back} days...")
-
         to_date = datetime.now()
-        from_date = to_date - timedelta(days=days_back)
+        from_date = start_date if start_date else (to_date - timedelta(days=60))
+
+        logging.info(f"Fetching {symbol} {interval} data from {from_date.date()} to {to_date.date()} (continuous={continuous})...")
 
         all_data = []
-        chunk_size = 30
-        current_to_date = to_date
+        chunk = timedelta(days=100) # Max 100 days per call for minute data
+        current = from_date
 
-        while current_to_date > from_date:
-            current_from_date = max(current_to_date - timedelta(days=chunk_size), from_date)
+        while current < to_date:
+            end = min(current + chunk, to_date)
+            logging.info(f"  -> Downloading chunk: {current.date()} to {end.date()}...")
             try:
                 data = self.kite.historical_data(
                     instrument_token,
-                    current_from_date.strftime("%Y-%m-%d %H:%M:%S"),
-                    current_to_date.strftime("%Y-%m-%d %H:%M:%S"),
-                    interval
+                    current.strftime("%Y-%m-%d %H:%M:%S"),
+                    end.strftime("%Y-%m-%d %H:%M:%S"),
+                    interval,
+                    continuous=continuous
                 )
                 if data:
                     all_data.extend(data)
             except Exception as e:
-                logging.error(f"Error fetching data for {symbol}: {e}")
+                logging.error(f"Error fetching data for {symbol} chunk: {e}")
+                break # Usually limit reached or token expired
 
-            current_to_date = current_from_date - timedelta(days=1)
+            current = end
+            time.sleep(0.5) # Critical to prevent 429 Too Many Requests
 
         if not all_data:
             logging.warning(f"No data found for {symbol}.")
@@ -68,39 +75,44 @@ class DataFetcher:
         return df
 
     def get_all_required_data(self):
-        instruments = [
-            {"exchange": "MCX", "symbol": "SILVERMIC", "interval": "5minute", "days": 60},
-            {"exchange": "MCX", "symbol": "GOLDGUINEA", "interval": "5minute", "days": 60},
-            {"exchange": "NFO", "symbol": "NIFTY", "interval": "5minute", "days": 60},
-            {"exchange": "NFO", "symbol": "BANKNIFTY", "interval": "5minute", "days": 60},
-        ]
+        # User's Phase 1 Request: Deep historical fetch from Jan 2022
+        deep_start = datetime(2022, 1, 1)
 
-        instruments_daily = [
-            {"exchange": "MCX", "symbol": "SILVERMIC", "interval": "day", "days": 400},
-            {"exchange": "MCX", "symbol": "GOLDGUINEA", "interval": "day", "days": 400},
-            {"exchange": "NFO", "symbol": "NIFTY", "interval": "day", "days": 400},
-            {"exchange": "NFO", "symbol": "BANKNIFTY", "interval": "day", "days": 400},
+        instruments = [
+            {"exchange": "MCX", "name": "SILVERMIC", "interval": "5minute", "start": deep_start},
+            {"exchange": "MCX", "name": "GOLDGUINEA", "interval": "5minute", "start": deep_start},
+            {"exchange": "NFO", "name": "NIFTY", "interval": "5minute", "start": deep_start},
+            {"exchange": "NFO", "name": "BANKNIFTY", "interval": "5minute", "start": deep_start},
         ]
 
         data_dict = {}
 
-        for req in instruments + instruments_daily:
-            symbol = req["symbol"]
-            token = self.get_instrument_token(req["exchange"], symbol)
+        for req in instruments:
+            name = req["name"]
+            token, tradingsymbol = self.get_nearest_future(req["exchange"], name)
 
             if token:
-                key = f"{symbol}_{req['interval']}"
-                df = self.fetch_historical_data(token, symbol, req["interval"], req["days"])
-                data_dict[key] = df
+                logging.info(f"Found active nearest future for {name}: {tradingsymbol} (Token: {token})")
+
+                # Intraday 5minute (Continuous)
+                key_5m = f"{name}_5minute"
+                df_5m = self.fetch_historical_data(token, name, req["interval"], req["start"], continuous=True)
+                data_dict[key_5m] = df_5m
+
+                # Daily (Continuous)
+                key_1d = f"{name}_day"
+                df_1d = self.fetch_historical_data(token, name, "day", deep_start, continuous=True)
+                data_dict[key_1d] = df_1d
             else:
-                logging.error(f"Could not find token for {symbol} on {req['exchange']}")
+                logging.error(f"Could not find futures token for {name} on {req['exchange']}")
 
         self._generate_synthetic_pcr_data()
         return data_dict
 
     def _generate_synthetic_pcr_data(self):
         for symbol in ["NIFTY", "BANKNIFTY"]:
-            filename = os.path.join(self.data_dir, f"{symbol}_day.csv")
+            # Matches the new continuous naming convention for caching dependency
+            filename = os.path.join(self.data_dir, f"{symbol}_continuous_day.csv")
             pcr_filename = os.path.join(self.data_dir, f"{symbol}_PCR.csv")
 
             if os.path.exists(pcr_filename):
