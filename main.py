@@ -78,40 +78,47 @@ def run_backtest_pipeline():
     all_oos_trades = []
 
     # 4. Optimization and Backtesting
+    intervals = ["5minute", "day"]
     for inst in instruments:
-        key_5m = f"{inst}_5minute"
-        df_5m = data_dict.get(key_5m)
+        for interval in intervals:
+            key = f"{inst}_{interval}"
+            df = data_dict.get(key)
 
-        if df_5m is None or df_5m.empty:
-            logging.warning(f"Missing 5m data for {inst}. Skipping.")
-            continue
-
-        for StratClass in strategies:
-            if StratClass == Strategy4_OptionVolumeImbalance and inst not in ["NIFTY", "BANKNIFTY"]:
+            if df is None or df.empty:
+                logging.warning(f"Missing {interval} data for {inst}. Skipping.")
                 continue
 
-            logging.info(f"Running {StratClass.__name__} on {inst}...")
+            for StratClass in strategies:
+                if StratClass == Strategy4_OptionVolumeImbalance and inst not in ["NIFTY", "BANKNIFTY"]:
+                    continue
 
-            grid = param_grids[StratClass]
-            extra_data = pcr_data if StratClass == Strategy4_OptionVolumeImbalance else None
+                strat_display_name = f"{StratClass.__name__} ({interval})"
+                logging.info(f"Running {strat_display_name} on {inst}...")
 
-            optimizer = WalkForwardOptimizer(
-                data=df_5m,
-                strategy_class=StratClass,
-                param_grid=grid,
-                instrument=inst,
-                extra_data=extra_data
-            )
+                grid = param_grids[StratClass]
+                extra_data = pcr_data if StratClass == Strategy4_OptionVolumeImbalance else None
 
-            res = optimizer.optimize()
+                optimizer = WalkForwardOptimizer(
+                    data=df,
+                    strategy_class=StratClass,
+                    param_grid=grid,
+                    instrument=inst,
+                    extra_data=extra_data
+                )
 
-            res['instrument'] = inst
-            res['strategy'] = StratClass.__name__
+                res = optimizer.optimize()
 
-            results.append(res)
+                res['instrument'] = inst
+                res['strategy'] = strat_display_name
 
-            if not res['oos_trades'].empty:
-                all_oos_trades.append(res['oos_trades'])
+                # Update strategy name in the trades list so it shows in the trade log correctly
+                if not res['oos_trades'].empty:
+                    res['oos_trades']['strategy'] = strat_display_name
+
+                results.append(res)
+
+                if not res['oos_trades'].empty:
+                    all_oos_trades.append(res['oos_trades'])
 
     # 5. Generate Reports
     logging.info("Generating reports...")
