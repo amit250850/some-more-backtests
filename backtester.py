@@ -196,6 +196,11 @@ class VectorizedBacktester:
                             exit_price = entry_price * (1 + stop_loss_pct)
                             exit_reason = "Stop Loss"
 
+                    if exit_price is None and hold_bars == 0:
+                        # Intraday strategy (exit at close on the same day if stop loss not hit)
+                        exit_price = row.close
+                        exit_reason = "Same Day Close (Intraday)"
+
                     if exit_price is not None:
                         trade_val_entry = entry_price * lot_size
                         trade_val_exit = exit_price * lot_size

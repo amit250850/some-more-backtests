@@ -6,11 +6,17 @@ from optimizer import WalkForwardOptimizer
 
 df_mcx = pd.read_csv("data/SILVERMIC_continuous_day.csv", parse_dates=['date'])
 df_comex = pd.read_csv("data/COMEX_SILVER_day.csv", parse_dates=['date'])
+df_dxy = pd.read_csv("data/DXY_day.csv", parse_dates=['date'])
 
 param_grid = {
     'divergence_threshold': [0.003, 0.005, 0.008],
-    'stop_loss': [0.01, 0.02],
-    'hold_bars': [1, 2] # Exit same day or next day
+    'stop_loss': [0.01],
+    'hold_bars': [0] # Exit END OF SAME DAY (Intraday)
+}
+
+extra_data = {
+    'comex': df_comex,
+    'dxy': df_dxy
 }
 
 optimizer = WalkForwardOptimizer(
@@ -18,7 +24,7 @@ optimizer = WalkForwardOptimizer(
     strategy_class=Strategy7_COMEXGapFill,
     param_grid=param_grid,
     instrument="SILVERMIC",
-    extra_data=df_comex
+    extra_data=extra_data
 )
 
 res = optimizer.optimize()

@@ -141,52 +141,99 @@ class Strategy6_SilverCOMEXBreakout(BaseStrategy):
 
 class Strategy7_COMEXGapFill(BaseStrategy):
     """
-    Strategy 7: MCX-COMEX Divergence (Gap Fade)
-    - Calculate COMEX overnight return (Previous COMEX close vs Current COMEX open, mapped to IST day).
-    - Calculate MCX opening gap (MCX open vs Previous MCX close).
-    - Divergence: If MCX gaps UP strongly but COMEX went DOWN (or flat), fade the gap (Short MCX).
-      If MCX gaps DOWN strongly but COMEX went UP (or flat), buy the gap (Long MCX).
+    Strategy 7: MCX-COMEX Divergence (Gap Fade) Highly Filtered
+    - Calculate COMEX overnight return
+    - Calculate MCX opening gap
+    - Divergence entry logic (Fade the gap)
+    - Filter 1: DXY Alignment (Skip if DXY aligns with MCX gap direction)
+    - Filter 2: Gap Size Cap (Max 1.5% gap to avoid news-driven moves)
+    - Filter 3: Expiry Filter (Skip last 3 days of standard MCX Silver Mic expiries)
     """
     def generate_signals(self) -> pd.DataFrame:
         df = self.data.copy()
-        comex_df = self.extra_data.copy() if self.extra_data is not None else None
+
+        # The new structure assumes extra_data is a dictionary containing COMEX and DXY data
+        if not isinstance(self.extra_data, dict):
+            # Fallback for old tests
+            comex_df = self.extra_data.copy() if self.extra_data is not None else None
+            dxy_df = None
+        else:
+            comex_df = self.extra_data.get('comex', pd.DataFrame())
+            dxy_df = self.extra_data.get('dxy', pd.DataFrame())
 
         if comex_df is None or comex_df.empty:
             df['signal'] = 0
             self.signals = df[['date', 'open', 'high', 'low', 'close', 'volume', 'signal']].copy()
             return self.signals
 
-        # Standardize dates for merging
         df['date_only'] = df['date'].dt.date
         comex_df['date_only'] = comex_df['date'].dt.date
 
-        # Calculate COMEX prior day return (Close to Close is safest for daily macro trends)
-        # Shift 1 represents the COMEX close from the PREVIOUS day which dictates the MCX open for TODAY
+        # COMEX Returns
         comex_df['comex_prev_close'] = comex_df['close'].shift(1)
         comex_df['comex_prev_prev_close'] = comex_df['close'].shift(2)
         comex_df['comex_overnight_ret'] = (comex_df['comex_prev_close'] - comex_df['comex_prev_prev_close']) / comex_df['comex_prev_prev_close']
 
-        # Merge COMEX data into MCX data
+        # Merge COMEX
         df = df.merge(comex_df[['date_only', 'comex_overnight_ret']], on='date_only', how='left')
 
-        # Calculate MCX Opening Gap
+        # DXY Returns
+        if dxy_df is not None and not dxy_df.empty:
+            dxy_df['date_only'] = dxy_df['date'].dt.date
+            dxy_df['dxy_prev_close'] = dxy_df['close'].shift(1)
+            dxy_df['dxy_prev_prev_close'] = dxy_df['close'].shift(2)
+            dxy_df['dxy_overnight_ret'] = (dxy_df['dxy_prev_close'] - dxy_df['dxy_prev_prev_close']) / dxy_df['dxy_prev_prev_close']
+            df = df.merge(dxy_df[['date_only', 'dxy_overnight_ret']], on='date_only', how='left')
+        else:
+            df['dxy_overnight_ret'] = 0.0 # Ignore if missing
+
+        # MCX Gap
         df['mcx_prev_close'] = df['close'].shift(1)
         df['mcx_gap_pct'] = (df['open'] - df['mcx_prev_close']) / df['mcx_prev_close']
 
-        # Calculate Divergence Error = MCX Gap - COMEX Overnight Move
+        # Base Divergence Error
         df['divergence_error'] = df['mcx_gap_pct'] - df['comex_overnight_ret']
 
-        threshold = self.params.get('divergence_threshold', 0.005) # 0.5% unjustified gap
+        threshold = self.params.get('divergence_threshold', 0.003)
+        max_gap = 0.015 # 1.5% max gap
 
         df['signal'] = 0
 
-        # If divergence is positive (MCX gapped higher than COMEX justifies), fade it (Short)
-        df.loc[df['divergence_error'] > threshold, 'signal'] = -1
+        # Condition logic mapping
+        gap_up = df['mcx_gap_pct'] > 0
+        gap_down = df['mcx_gap_pct'] < 0
+        dxy_up = df['dxy_overnight_ret'] > 0
+        dxy_down = df['dxy_overnight_ret'] < 0
 
-        # If divergence is negative (MCX gapped lower than COMEX justifies), buy the dip (Long)
-        df.loc[df['divergence_error'] < -threshold, 'signal'] = 1
+        # Filter 1: DXY Alignment
+        # Silver moves inversely to DXY. If DXY drops, Silver goes up.
+        # If DXY drops (bullish for Silver) AND MCX gaps up, that is fundamentally aligned. Skip fade.
+        # If DXY rises (bearish for Silver) AND MCX gaps down, aligned. Skip fade.
+        dxy_aligned_up = gap_up & dxy_down
+        dxy_aligned_down = gap_down & dxy_up
 
-        self.signals = df[['date', 'open', 'high', 'low', 'close', 'volume', 'signal']].copy()
+        # Filter 2: Gap size cap
+        valid_gap_size = df['mcx_gap_pct'].abs() <= max_gap
+
+        # Filter 3: Expiry Filter (Silver Mic usually expires around end of Feb, Apr, Jun, Aug, Nov)
+        # Avoid last 3 days of the month for these months
+        expiry_months = [2, 4, 6, 8, 11]
+        df['month'] = df['date'].dt.month
+        df['day'] = df['date'].dt.day
+        # Approx: Avoid if day > 25 for expiry months
+        near_expiry = df['month'].isin(expiry_months) & (df['day'] > 25)
+
+        # Final Combinations
+        # Short (Fade Gap Up): Error > threshold, NOT DXY aligned, Valid gap size, NOT near expiry
+        short_cond = (df['divergence_error'] > threshold) & (~dxy_aligned_up) & valid_gap_size & (~near_expiry)
+
+        # Long (Fade Gap Down): Error < -threshold, NOT DXY aligned, Valid gap size, NOT near expiry
+        long_cond = (df['divergence_error'] < -threshold) & (~dxy_aligned_down) & valid_gap_size & (~near_expiry)
+
+        df.loc[long_cond, 'signal'] = 1
+        df.loc[short_cond, 'signal'] = -1
+
+        self.signals = df[['date', 'open', 'high', 'low', 'close', 'volume', 'signal', 'mcx_gap_pct', 'divergence_error', 'dxy_overnight_ret']].copy()
 
         # The entry is exactly at the Open price of the current bar (because we trade the gap)
         # So we do not use shift(-1) here for daily gap trading. We assume we can get filled at Open + slippage.
