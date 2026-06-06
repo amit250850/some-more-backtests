@@ -139,6 +139,61 @@ class Strategy6_SilverCOMEXBreakout(BaseStrategy):
 
         return self.signals
 
+class Strategy7_COMEXGapFill(BaseStrategy):
+    """
+    Strategy 7: MCX-COMEX Divergence (Gap Fade)
+    - Calculate COMEX overnight return (Previous COMEX close vs Current COMEX open, mapped to IST day).
+    - Calculate MCX opening gap (MCX open vs Previous MCX close).
+    - Divergence: If MCX gaps UP strongly but COMEX went DOWN (or flat), fade the gap (Short MCX).
+      If MCX gaps DOWN strongly but COMEX went UP (or flat), buy the gap (Long MCX).
+    """
+    def generate_signals(self) -> pd.DataFrame:
+        df = self.data.copy()
+        comex_df = self.extra_data.copy() if self.extra_data is not None else None
+
+        if comex_df is None or comex_df.empty:
+            df['signal'] = 0
+            self.signals = df[['date', 'open', 'high', 'low', 'close', 'volume', 'signal']].copy()
+            return self.signals
+
+        # Standardize dates for merging
+        df['date_only'] = df['date'].dt.date
+        comex_df['date_only'] = comex_df['date'].dt.date
+
+        # Calculate COMEX prior day return (Close to Close is safest for daily macro trends)
+        # Shift 1 represents the COMEX close from the PREVIOUS day which dictates the MCX open for TODAY
+        comex_df['comex_prev_close'] = comex_df['close'].shift(1)
+        comex_df['comex_prev_prev_close'] = comex_df['close'].shift(2)
+        comex_df['comex_overnight_ret'] = (comex_df['comex_prev_close'] - comex_df['comex_prev_prev_close']) / comex_df['comex_prev_prev_close']
+
+        # Merge COMEX data into MCX data
+        df = df.merge(comex_df[['date_only', 'comex_overnight_ret']], on='date_only', how='left')
+
+        # Calculate MCX Opening Gap
+        df['mcx_prev_close'] = df['close'].shift(1)
+        df['mcx_gap_pct'] = (df['open'] - df['mcx_prev_close']) / df['mcx_prev_close']
+
+        # Calculate Divergence Error = MCX Gap - COMEX Overnight Move
+        df['divergence_error'] = df['mcx_gap_pct'] - df['comex_overnight_ret']
+
+        threshold = self.params.get('divergence_threshold', 0.005) # 0.5% unjustified gap
+
+        df['signal'] = 0
+
+        # If divergence is positive (MCX gapped higher than COMEX justifies), fade it (Short)
+        df.loc[df['divergence_error'] > threshold, 'signal'] = -1
+
+        # If divergence is negative (MCX gapped lower than COMEX justifies), buy the dip (Long)
+        df.loc[df['divergence_error'] < -threshold, 'signal'] = 1
+
+        self.signals = df[['date', 'open', 'high', 'low', 'close', 'volume', 'signal']].copy()
+
+        # The entry is exactly at the Open price of the current bar (because we trade the gap)
+        # So we do not use shift(-1) here for daily gap trading. We assume we can get filled at Open + slippage.
+        self.signals['entry_price'] = self.signals['open']
+
+        return self.signals
+
 class Strategy2_VPIN(BaseStrategy):
     """
     Strategy 2: VPIN Approximation (Order Flow Toxicity)

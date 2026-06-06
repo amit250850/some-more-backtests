@@ -181,6 +181,44 @@ class VectorizedBacktester:
                     else:
                         option_entry_price = black_scholes_put(entry_price, entry_price, 7/365, 0.05, 0.15)
 
+                # Immediately check intra-bar Stop Loss/Take Profit on entry bar for strategies that enter on the Open
+                if 'Strategy7' in self.strategy_name:
+                    exit_price = None
+                    exit_reason = None
+                    if position_type == 1:
+                        ret = (row.low - entry_price) / entry_price
+                        if ret <= -stop_loss_pct:
+                            exit_price = entry_price * (1 - stop_loss_pct)
+                            exit_reason = "Stop Loss"
+                    elif position_type == -1:
+                        ret = (entry_price - row.high) / entry_price
+                        if ret <= -stop_loss_pct:
+                            exit_price = entry_price * (1 + stop_loss_pct)
+                            exit_reason = "Stop Loss"
+
+                    if exit_price is not None:
+                        trade_val_entry = entry_price * lot_size
+                        trade_val_exit = exit_price * lot_size
+                        costs = calculate_costs(trade_val_entry, trade_val_exit)
+                        pnl = (exit_price - entry_price) * lot_size - costs if position_type == 1 else (entry_price - exit_price) * lot_size - costs
+                        ret_pct = pnl / (entry_price * lot_size)
+
+                        self.trades.append({
+                            'instrument': self.instrument,
+                            'strategy': self.strategy_name,
+                            'entry_date': entry_date,
+                            'exit_date': row.date,
+                            'direction': 'Long' if position_type == 1 else 'Short',
+                            'entry_price': entry_price,
+                            'exit_price': exit_price,
+                            'exit_reason': exit_reason,
+                            'pnl': pnl,
+                            'pnl_pct': ret_pct * 100,
+                            'hold_bars': 0
+                        })
+                        in_position = False
+                        position_type = 0
+
         return pd.DataFrame(self.trades)
 
     def calculate_metrics(self):
