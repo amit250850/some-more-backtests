@@ -25,8 +25,10 @@ def fetch_bhavcopy(date_obj):
     # 1. Check local cache (parquet)
     date_str = date_obj.strftime("%Y-%m-%d")
     cache_path = os.path.join(DATA_DIR, f"bhavcopy_{date_str}.parquet")
+    if not os.path.exists(cache_path):
+        return None
     if os.path.exists(cache_path):
-        print(f"[{date_str}] Loading from cache")
+        pass # print(f"[{date_str}] Loading from cache")
         return pd.read_parquet(cache_path)
 
     session = requests.Session()
@@ -56,7 +58,7 @@ def fetch_bhavcopy(date_obj):
     ]
 
     for fmt, url in urls_to_try:
-        # print(f"[{date_str}] Trying {fmt} format: {url}")
+        # pass # print(f"[{date_str}] Trying {fmt} format: {url}")
         try:
             r = session.get(url, timeout=10)
             if r.status_code == 200:
@@ -117,7 +119,7 @@ def fetch_bhavcopy(date_obj):
 
                         # Save to cache
                         normalized_df.to_parquet(cache_path)
-                        print(f"[{date_str}] Downloaded and cached successfully ({fmt})")
+                        pass # print(f"[{date_str}] Downloaded and cached successfully ({fmt})")
                         return normalized_df
             elif r.status_code == 404:
                 # Normal for missing dates, try next format
@@ -131,7 +133,7 @@ def fetch_bhavcopy(date_obj):
 
         time.sleep(0.5) # Polite delay
 
-    print(f"[{date_str}] Could not fetch data (might be a holiday)")
+    pass # print(f"[{date_str}] Could not fetch data (might be a holiday)")
     return None
 
 def fetch_nifty_spot(start_date, end_date):

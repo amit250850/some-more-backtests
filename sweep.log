@@ -1,0 +1,23 @@
+Running Volatility-Regime Sweep...
+Running for IVP Threshold: 0...
+Running for IVP Threshold: 50...
+Running for IVP Threshold: 60...
+Running for IVP Threshold: 70...
+Running for IVP Threshold: 80...
+
+================================================================================
+VRP SHORT VOLATILITY: IV-REGIME SWEEP (SL-HIGH PROXY)
+================================================================================
++-----------+--------+----------------+----------+-------+------+------------+-----------+--------+-------------+---------+-------------------------------+
+| Threshold | Trades | Net P&L (High) | CAGR (%) | Win%  | R:R  | Expectancy | MaxDD (%) | Calmar | Worst Trade | Verdict |             Fails             |
++-----------+--------+----------------+----------+-------+------+------------+-----------+--------+-------------+---------+-------------------------------+
+|     0     |  234   |   -203779.49   |   nan    | 14.1  | 0.74 |  -870.85   |  -101.48  |  nan   |  -10525.46  |  FAIL   |       MaxDD>25%, Exp<=0       |
+|    50     |  144   |   -134899.46   |  -22.2   | 18.75 | 0.65 |   -936.8   |  -67.04   | -0.33  |  -10525.46  |  FAIL   | Calmar<1.0, MaxDD>25%, Exp<=0 |
+|    60     |  116   |   -116709.99   |  -18.01  | 18.1  | 0.63 |  -1006.12  |  -57.93   | -0.31  |  -10525.46  |  FAIL   | Calmar<1.0, MaxDD>25%, Exp<=0 |
+|    70     |   81   |   -82970.22    |  -11.44  | 20.99 | 0.64 |  -1024.32  |  -41.06   | -0.28  |  -10525.46  |  FAIL   | Calmar<1.0, MaxDD>25%, Exp<=0 |
+|    80     |   59   |    -68852.6    |  -9.19   | 20.34 | 0.7  |  -1166.99  |   -34.0   | -0.27  |  -10525.46  |  FAIL   | Calmar<1.0, MaxDD>25%, Exp<=0 |
++-----------+--------+----------------+----------+-------+------+------------+-----------+--------+-------------+---------+-------------------------------+
+
+--- BLUNT VERDICT ---
+FAIL: Even the best threshold fails the gates or has too few trades to be meaningful.
+Conclusion: Shorting vol blindly is terrible, and filtering for rich IV still isn't enough to survive the brutal tail risk and slippage in NIFTY options over 5.5 years.
