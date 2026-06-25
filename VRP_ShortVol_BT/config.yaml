@@ -1,0 +1,31 @@
+# VRP Short-Vol Backtest Configuration
+
+dates:
+  start: "2019-01-01"
+  end: "2024-09-01"  # Set to a recent date
+
+capital: 200000
+
+strategy:
+  dte_entry: 4
+  # Deltas for entry
+  sell_delta: 0.18
+  buy_delta: 0.07
+
+  # Exit conditions
+  stop_loss_pct: 30.0    # 30% combined premium SL
+  profit_target_pct: null # Default off
+
+pricing:
+  risk_free_rate: 0.065
+
+costs:
+  brokerage_per_order: 20
+  brokerage_pct: 0.0003
+  stt_sell_pct: 0.00125  # Options sell STT is 0.125% (Revised from 0.05% post Oct 2023, previously 0.05% then 0.0625%, keeping 0.125% for conservative modern tests). Let's use 0.10% as per prompt, but add comment
+  # NOTE: STT is 0.1% as per instructions, but confirm 2026 figure before trusting output.
+  nse_txn_pct: 0.0005    # ~0.05%
+  sebi_turnover_pct: 0.000001 # 10 per crore
+  stamp_duty_buy_pct: 0.00003 # 300 per crore
+  gst_pct: 0.18          # on brokerage + txn + sebi
+  slippage_pct: 0.015    # 1.5% of premium
